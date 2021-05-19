@@ -17,6 +17,8 @@ use stm32f3xx_hal as hal;
 use hal::pac;
 use hal::prelude::*;
 
+use sts3x;
+
 #[entry]
 fn main() -> ! {
     let mut p = Peripherals::take().unwrap();  // Cortex core peripherals
@@ -34,7 +36,7 @@ fn main() -> ! {
     loop {
         iprintln!(stim, "test {}", i);
         asm::delay(8_000_000);
-        i += 1;
+        i = sts3x::add_one(&i);
         led.toggle().unwrap();
     }
 }
