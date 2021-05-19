@@ -6,20 +6,20 @@
      */
     "version": "0.2.0",
     "configurations": [
-        {
-            "type": "cortex-debug",
-            "request": "launch",
-            "name": "Debug (QEMU)",
-            "servertype": "qemu",
-            "cwd": "${workspaceRoot}",
-            "preLaunchTask": "Cargo Build (debug)",
-            "runToMain": true,
-            "executable": "./target/thumbv7m-none-eabi/debug/sts3x",
-            /* Run `cargo build --example hello` and uncomment this line to run semi-hosting example */
-            //"executable": "./target/thumbv7m-none-eabi/debug/examples/hello",
-            "cpu": "cortex-m3",
-            "machine": "lm3s6965evb",
-        },
+        // {
+        //     "type": "cortex-debug",
+        //     "request": "launch",
+        //     "name": "Debug (QEMU)",
+        //     "servertype": "qemu",
+        //     "cwd": "${workspaceRoot}",
+        //     "preLaunchTask": "Cargo Build (debug)",
+        //     "runToMain": true,
+        //     "executable": "./target/thumbv7m-none-eabi/debug/sts3x",
+        //     /* Run `cargo build --example hello` and uncomment this line to run semi-hosting example */
+        //     //"executable": "./target/thumbv7m-none-eabi/debug/examples/hello",
+        //     "cpu": "cortex-m3",
+        //     "machine": "lm3s6965evb",
+        // },
         {
             /* Configuration for the STM32F303 Discovery board */
             "type": "cortex-debug",
