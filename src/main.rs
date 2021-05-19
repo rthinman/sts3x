@@ -19,7 +19,7 @@ use hal::prelude::*;
 
 use sts3x;
 
-const STS31_ADDR: u8 = 0x4A;
+//const STS31_ADDR: u8 = 0x4A;
 
 #[entry]
 fn main() -> ! {
@@ -46,48 +46,24 @@ fn main() -> ! {
         gpiob.pb7.into_af4(&mut gpiob.moder, &mut gpiob.afrl), // SDA
     );
     let mut my_i2c = hal::i2c::I2c::new(dp.I2C1, i2c_pins, 100.khz(), clocks, &mut rcc.apb1);
+
+    let mut mysensor = sts3x::Sts3x::new(my_i2c, sts3x::PeripheralAddr::PinLow);
     
 
-    let mut i = 0;
+//    let mut i = 0;
     loop {
         // Read temperature data from STS31
-        my_i2c.write(STS31_ADDR, &[0x24, 0x00]).unwrap(); // no clock stretching, high repeatability
+//        my_i2c.write(STS31_ADDR, &[0x24, 0x00]).unwrap(); // no clock stretching, high repeatability
+        mysensor.trigger_temp_meas().unwrap();
         asm::delay(16 * 8_000); // 16 msec
-        let mut meas = [0u8; 3];
-        my_i2c.read(STS31_ADDR, &mut meas).unwrap();
-        let foo: f64 = -45.0 + 175.0 * (meas[0] as f64 * 256.0 + meas[1] as f64) / 65535.0;
-        iprintln!(stim, "{:?} {:?} {:?} {} C", meas, crc::crc8(&[meas[0], meas[1]]), crc::is_crc8_valid(&meas), foo);
+//        let mut meas = [0u8; 3];
+//        my_i2c.read(STS31_ADDR, &mut meas).unwrap();
+//        let foo: f64 = -45.0 + 175.0 * (meas[0] as f64 * 256.0 + meas[1] as f64) / 65535.0;
+//        iprintln!(stim, "{:?} {:?} {:?} {} C", meas, crc::crc8(&[meas[0], meas[1]]), crc::is_crc8_valid(&meas), foo);
+        let temp = mysensor.read_temperature().unwrap();
+        iprintln!(stim, "temp: 0x{:x}", temp);
 
         asm::delay(8_000_000);
-        i = sts3x::add_one(&i);
         led.toggle().unwrap();
-    }
-}
-
-mod crc {
-/// Functions to calculate the CRC8 checksum and validate it
-///
-/// Implementation based on the shtcx crate, which was based on the reference by Sensirion.
-//pub(crate) fn crc8(data: &[u8]) -> u8 {
-    pub fn crc8(data: &[u8]) -> u8 {
-        const CRC8_POLYNOMIAL: u8 = 0x31;
-        let mut crc: u8 = 0xFF;
-        for byte in data {
-            crc ^= byte;
-            for _ in 0..8 {
-                if (crc & 0x80) > 0 {
-                    crc = (crc << 1) ^ CRC8_POLYNOMIAL;
-                } else {
-                    crc <<= 1;
-                }
-            }
-        }
-        crc
-    }
-
-/// Validate the checksum.  data should contain the data + checksum as the last byte.
-//pub(crate) fn is_crc8_valid(data: &[u8]) -> bool {
-    pub fn is_crc8_valid(data: &[u8]) -> bool {
-        crc8(data) == 0
     }
 }
