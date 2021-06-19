@@ -6,9 +6,9 @@
 //! 
 //! TODO: More information here.
 //! 
-//! The driver borrows liberally from
-//! eldruin's tmp1x2-rs driver for Texas Instruments TMP102 and TMP112, https://github.com/eldruin/tmp1x2-rs, and
-//! dbrgn's shtcx-rs driver for Sensirion SHTCx temperature/humidity sensors, https://github.com/dbrgn/shtcx-rs.
+//! The driver borrows liberally from: 
+//! - eldruin's tmp1x2-rs driver for Texas Instruments TMP102 and TMP112, https://github.com/eldruin/tmp1x2-rs, and
+//! - dbrgn's shtcx-rs driver for Sensirion SHTCx temperature/humidity sensors, https://github.com/dbrgn/shtcx-rs.
 
 #![deny(unsafe_code)]
 #![no_std]
@@ -18,7 +18,7 @@
 mod crc;
 
 use core::marker::PhantomData;
-use embedded_hal::blocking::i2c;
+use embedded_hal::blocking::i2c;  // TODO: move to using nb if the crate adds a nonblocking I2C.
 pub use nb;
 
 /// Possible errors in this crate
@@ -57,7 +57,7 @@ pub enum ConversionRate {
 }
 
 /// Repeatability condition for both one-shot and continuous modes.
-/// From the datasheet: 3 * standard deviation of measurements at constant ambient.
+/// From the datasheet: the value is 3 * standard deviation of measurements at constant ambient.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Repeatability {
     /// High repeatability 0.04°C
@@ -217,7 +217,7 @@ pub struct Sts3x<I2C, MODE> {
     _mode: PhantomData<MODE>,
 }
 
-// Creation: we can only create a one-shot version.
+// Implement struct creation for OneShot only so that it is only possible to create a one-shot version.
 impl<I2C, E> Sts3x<I2C, marker::mode::OneShot>
 where
     I2C: i2c::Write<Error = E>,
@@ -226,7 +226,7 @@ where
     /// Defaults to Low repeatability for power savings.
     /// Change repeatability with set_repeatability().
     /// 
-    /// By default, we are in one-shot mode.
+    /// By default, the device starts in one-shot mode.
     pub fn new(i2c: I2C, address: PeripheralAddr) -> Self {
         Sts3x {
             i2c,
@@ -239,7 +239,7 @@ where
 
     /// Create new instance of the Sts3x device, choosing a Repeatability.
     /// 
-    /// By default, we are in one-shot mode.
+    /// By default, the device starts in one-shot mode.
     pub fn new_with_repeatability(i2c: I2C, address: PeripheralAddr, repeatability: Repeatability) -> Self {
         Sts3x {
             i2c,
@@ -256,7 +256,7 @@ impl<I2C, MODE, E> Sts3x<I2C, MODE>
 where
     I2C: i2c::Read<Error = E> + i2c::Write<Error = E>,
 {
-    /// Destroy driver instance and return the I2C bus  instance.
+    /// Destroy driver instance and return the I2C bus instance.
     pub fn destroy(self) -> I2C {
         self.i2c
     }
@@ -273,7 +273,6 @@ where
     /// Read and check the CRC.
     /// Returns a Result with u16 corresponding to the MSB,LSB of the first
     /// two bytes of the buffer. 
-    // TODO: once moving to own package, change to mod crc at top and crc::is_crc8_valid here. 
     fn read_with_crc(&mut self) -> Result<u16, Error<E>> {
         let mut buf = [0u8; 3];
         self.i2c.read(self.address, &mut buf).map_err(Error::I2C)?;
@@ -283,6 +282,10 @@ where
         } else {
             Err(Error::Crc)
         }
+    }
+
+    fn convert_temp_to_float(temp: u16) -> f32 {
+        -45.0 + 175.0 * (temp as f32) / 65535.0
     }
 
     // method about measurement duration?
@@ -300,8 +303,61 @@ where
         self.send_command(Command::StartSingleShot{repeatability: self.repeatability})
     }
 
-    pub fn read_temperature(&mut self) -> Result<u16, Error<E>> {
-        self.read_with_crc()  // TODO: convert to a readable temperature, using let foo = self.read_with_crc()?; then converting foo
+    /// Perform a one-shot temperature measurement.
+    ///
+    /// This allows triggering a single temperature measurement when in
+    /// one-shot mode. The device returns to the low-power state at the
+    /// completion of the temperature conversion, reducing power
+    /// consumption when continuous temperature monitoring is not required.
+    ///
+    /// If no temperature conversion was started yet, calling this method
+    /// will start one and return `nb::Error::WouldBlock`. Subsequent calls
+    /// will continue to return `nb::Error::WouldBlock` until the
+    /// temperature measurement is finished. Then it will return the
+    /// measured temperature in °C.
+    pub fn read_temperature(&mut self) -> nb::Result<f32, Error<E>> {
+        if !self.temp_measurement_started {
+            self.trigger_temp_meas()
+                .map_err(nb::Error::Other)?;
+            self.temp_measurement_started = true;
+            return Err(nb::Error::WouldBlock);
+        }
+        let mut buf = [0u8; 3];
+        let completion = self.i2c.read(self.address, &mut buf);
+
+        // What I want to do:
+        // match completion {
+        //     Ok(val) => {
+        //         // Conversion complete.
+        //         let x: u16 = (buf[0] as u16) << 8 | (buf[1] as u16);
+        //         self.temp_measurement_started = false;
+        //         Ok(Self::convert_temp_to_float(x))
+        //     },
+        //     Err(stm32f3xx_hal::i2c::Error::Nack) => { // I want to replace with a generic path in embedded_hal
+        //                                               // namespace because we shouldn't depend on a specific device HAL.  
+        //         Err(nb::Error::WouldBlock)
+        //     },
+        //     Err(e) => {
+        //         Err(nb::Error::Other(Error::I2C(e))) // Not sure this is correct, but compiler doesn't complain.
+        //     }
+        // }
+
+        // What I have to do with embedded_hal 0.2.4/0.2.5:
+        match completion {
+            Ok(_) => {
+                // Conversion complete.
+                self.temp_measurement_started = false;
+                if crc::is_crc8_valid(&buf) {
+                    let x: u16 = (buf[0] as u16) << 8 | (buf[1] as u16);
+                    Ok(Self::convert_temp_to_float(x))
+                } else {
+                    Err(nb::Error::Other(Error::Crc))
+                }
+            },
+            _ => {
+                Err(nb::Error::WouldBlock)
+            }
+        }
     }
 
     pub fn set_repeatability(&mut self, r: Repeatability) -> Repeatability{
